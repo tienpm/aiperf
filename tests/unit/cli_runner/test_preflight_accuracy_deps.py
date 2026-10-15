@@ -215,3 +215,83 @@ class TestCheckAvailable:
         from aiperf.accuracy.graders.exact_match import ExactMatchGrader
 
         ExactMatchGrader.check_available()
+
+
+class TestPreflightAgenticAccuracyDeps:
+    """Agentic benchmarks (``agentic: true`` metadata, e.g. deepswe) have no
+    grader — grading is the task's verifier executed by Pier — so the preflight
+    checks the pier/docker prerequisites instead and rejects an explicit
+    ``--accuracy-grader``."""
+
+    def _patch_agentic_registry(self, monkeypatch, *, benchmark_cls=_Available):
+        monkeypatch.setattr(
+            "aiperf.plugin.plugins.get_metadata",
+            lambda _type, _name: {"agentic": True},
+        )
+        monkeypatch.setattr(
+            "aiperf.plugin.plugins.get_class",
+            lambda _type, _name: benchmark_cls,
+        )
+
+    def _patch_tools(self, monkeypatch, *, pier: object = None, docker: object = None):
+        import aiperf.accuracy.deepswe_runner as runner
+
+        if pier is not None:
+            monkeypatch.setattr(runner, "resolve_pier_bin", pier)
+        # docker may be None: that is the "binary missing" case, and
+        # resolve_pier_bin is patched separately so it never calls which.
+        monkeypatch.setattr("shutil.which", lambda name: docker)
+        import subprocess as _subprocess
+
+        monkeypatch.setattr(
+            _subprocess, "run", lambda *a, **kw: _subprocess.CompletedProcess(a, 0)
+        )
+
+    def test_explicit_grader_rejected_for_agentic_benchmark(self, monkeypatch) -> None:
+        self._patch_agentic_registry(monkeypatch)
+        self._patch_tools(monkeypatch, pier=lambda: "/fake/pier", docker="/fake/docker")
+
+        with pytest.raises(ConfigurationError, match="not supported"):
+            _preflight_accuracy_deps(
+                _plan(_acc(enabled=True, benchmark="deepswe", grader="exact_match"))
+            )
+
+    def test_missing_pier_raises_with_install_hint(self, monkeypatch) -> None:
+        from aiperf.common.exceptions import ConfigurationError as AiperfConfigError
+
+        self._patch_agentic_registry(monkeypatch)
+
+        def _missing() -> None:
+            raise AiperfConfigError(
+                "Pier CLI 'pier' not found. ... 'uv tool install datacurve-pier' ..."
+            )
+
+        monkeypatch.setattr("aiperf.accuracy.deepswe_runner.resolve_pier_bin", _missing)
+        with pytest.raises(ConfigurationError, match="datacurve-pier"):
+            _preflight_accuracy_deps(_plan(_acc(enabled=True, benchmark="deepswe")))
+
+    def test_missing_docker_binary_raises(self, monkeypatch) -> None:
+        self._patch_agentic_registry(monkeypatch)
+        self._patch_tools(monkeypatch, pier=lambda: "/fake/pier", docker=None)
+
+        with pytest.raises(ConfigurationError, match="no 'docker' executable"):
+            _preflight_accuracy_deps(_plan(_acc(enabled=True, benchmark="deepswe")))
+
+    def test_stopped_docker_daemon_raises(self, monkeypatch) -> None:
+        import subprocess
+
+        self._patch_agentic_registry(monkeypatch)
+        self._patch_tools(monkeypatch, pier=lambda: "/fake/pier", docker="/fake/docker")
+
+        def _dead_daemon(*args, **kwargs):
+            raise subprocess.TimeoutExpired(cmd="docker info", timeout=15)
+
+        monkeypatch.setattr("subprocess.run", _dead_daemon)
+        with pytest.raises(ConfigurationError, match="daemon is not reachable"):
+            _preflight_accuracy_deps(_plan(_acc(enabled=True, benchmark="deepswe")))
+
+    def test_healthy_agentic_setup_passes(self, monkeypatch) -> None:
+        self._patch_agentic_registry(monkeypatch)
+        self._patch_tools(monkeypatch, pier=lambda: "/fake/pier", docker="/fake/docker")
+
+        _preflight_accuracy_deps(_plan(_acc(enabled=True, benchmark="deepswe")))

@@ -1683,6 +1683,26 @@ accuracy_benchmark:
       default_grader: code_execution
       default_n_shots: 0
 
+  deepswe:
+    class: aiperf.accuracy.benchmarks.deepswe:DeepSWEBenchmark
+    description: |
+      DeepSWE v1.1 (datacurve-ai/deep-swe): 113 original, long-horizon
+      software-engineering tasks from active open-source repositories, each
+      an isolated Docker sandbox pinned to a prebuilt image and graded by a
+      program-based verifier (reward.json binary reward + pass fractions).
+      Agentic: the agent loop (mini-swe-agent) and verifier run via the
+      external Pier CLI against the configured endpoint, orchestrated by
+      DeepSWEAgenticRunner — problems are never dispatched as worker
+      requests. Requires Docker, the Pier CLI (uv tool install
+      datacurve-pier), and the task set (auto-downloaded from the pinned
+      GitHub tarball, or AIPERF_ACCURACY_DEEPSWE_TASKS_DIR for offline
+      hosts). Select tasks with --accuracy-tasks (task ids, e.g.
+      bandit-incremental-cache-control).
+    metadata:
+      agentic: true
+      runner: pier
+      default_n_shots: 0
+
 # =============================================================================
 # Communication Backends
 # =============================================================================

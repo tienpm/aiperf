@@ -81,6 +81,7 @@ system message).
 | `gpqa_diamond` | `lighteval_gpqa` | 0 | `Idavidrein/gpqa` subset `gpqa_diamond` (trt-llm/lighteval reference, simple-evals template with SHA-256-seeded deterministic A/B/C/D shuffling, `gpqa_metric`) |
 | `lcb_codegeneration` | `code_execution` | 0 | `livecodebench/code_generation_lite` (trt-llm/lighteval reference; LCB test-case payload serialized into `BenchmarkProblem.ground_truth` as an orjson blob; `code_execution` grader runs the generated code against the bundled test cases via lighteval's `codegen_metrics`) |
 | `gsm8k` | `lighteval_gsm8k` | 0 | `gsm8k` subset `main` (trt-llm/lighteval reference, `gsm8k_leaderboard` config; prompt `"Question: {question}\nAnswer:"`, gold is the raw answer ending in `#### <number>`, `quasi_exact_match_gsm8k`) |
+| `deepswe` | *(agentic — the task's program-based verifier)* | 0 | DeepSWE v1.1 (`datacurve-ai/deep-swe`, 113 long-horizon SWE tasks). **Agentic**: trials run via the external Pier CLI (`mini-swe-agent` inside the task's Docker sandbox) against the configured endpoint; the verifier's `reward.json` is ingested as accuracy records. Requires Docker + the Pier CLI. See [DeepSWE runbook](deepswe.md). |
 
 ### LiveCodeBench (lcb_codegeneration) version pinning
 
@@ -121,6 +122,43 @@ recover by bumping the env var:
 ```bash
 export AIPERF_ACCURACY_LCB_RELEASE_TAG=v6   # or whatever LCB now ships
 ```
+
+## DeepSWE (deepswe) — agentic accuracy
+
+Unlike every other benchmark in the table above, DeepSWE is **agentic**: the
+model under test interactively explores a real repository and runs commands
+inside the task's Docker sandbox for up to the task's agent timeout
+(commonly 3 hours), then a separate verifier container applies the agent's
+committed work as a patch and runs the task's test suite
+(`reward.json`, binary reward plus pass fractions). AIPerf's request pipeline
+generates pre-defined conversations, so agentic trials cannot flow through
+the normal workers — instead `--accuracy-benchmark deepswe` dispatches to the
+in-process agentic runner, which delegates each task to the external
+[Pier](https://github.com/datacurve-ai/pier) CLI
+(`pier run --agent mini-swe-agent`) with the endpoint wired as the
+OpenAI-compatible base URL, then ingests each trial's verifier rewards as
+accuracy records.
+
+```bash
+uv run aiperf profile \
+  --url http://<endpoint> \
+  --model <model-name> \
+  --accuracy-benchmark deepswe \
+  --accuracy-tasks bandit-incremental-cache-control
+```
+
+The endpoint must be reachable on port 80 or 443 — the task sandboxes'
+egress proxy denies all other ports (see the runbook's
+[Model and endpoint wiring](deepswe.md#model-and-endpoint-wiring)).
+
+The run reports the same artifacts as any accuracy run (console table,
+`accuracy_results.csv`, `accuracy_export.jsonl`) plus the raw Pier trial
+directories under `<artifact_dir>/deepswe/`. There are no performance
+metrics — no requests flow through AIPerf's workers.
+
+Requirements and operational details (Docker, the Pier CLI, task-set
+provisioning, offline hosts, concurrency, timeouts, calibration with the
+`oracle` agent) live in the [DeepSWE runbook](deepswe.md).
 
 ## MMLU chain-of-thought and reasoning models
 

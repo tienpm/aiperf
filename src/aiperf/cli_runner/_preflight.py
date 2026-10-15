@@ -20,6 +20,7 @@ from aiperf.common.endpoint_auth import auth_headers_for_endpoint
 
 if TYPE_CHECKING:
     from aiperf.config import BenchmarkPlan
+    from aiperf.plugin.enums import PluginType
 
 # Re-export for callers still importing the private name; prefer
 # ``auth_headers_for_endpoint`` from ``aiperf.common.endpoint_auth``.
@@ -91,6 +92,70 @@ def _preflight_fd_limit() -> None:
         resource.setrlimit(resource.RLIMIT_NOFILE, (new_soft, hard))
 
 
+def _preflight_agentic_accuracy_deps() -> None:
+    """Fail fast when the agentic accuracy path's external tools are missing.
+
+    Agentic benchmarks (deepswe) execute trials through the external Pier CLI
+    and Docker sandboxes instead of the service topology, so their
+    prerequisites are the pier binary and a working docker binary — checked
+    here, in the main process, so a missing tool renders one clean
+    ``ConfigurationError`` panel instead of a per-trial pier failure.
+    """
+    import shutil
+    import subprocess
+
+    from aiperf.accuracy.deepswe_runner import resolve_pier_bin
+    from aiperf.common.exceptions import (
+        ConfigurationError as AiperfConfigurationError,
+    )
+    from aiperf.config.loader.errors import ConfigurationError
+
+    try:
+        resolve_pier_bin()
+    except AiperfConfigurationError as exc:
+        raise ConfigurationError(str(exc)) from exc
+
+    if shutil.which("docker") is None:
+        raise ConfigurationError(
+            "Docker is required by the deepswe benchmark (each task runs in a "
+            "Docker sandbox and is graded in a separate verifier container) "
+            "but no 'docker' executable was found. Install Docker and ensure "
+            "'docker' is on PATH."
+        )
+    # Binary present: also verify the daemon answers so a stopped Docker
+    # Desktop/engine fails here rather than as an opaque per-trial pier error.
+    try:
+        subprocess.run(
+            ["docker", "info", "--format", "{{.ServerVersion}}"],
+            capture_output=True,
+            timeout=15,
+            check=True,
+        )
+    except (OSError, subprocess.SubprocessError) as exc:
+        raise ConfigurationError(
+            f"Docker is installed but the daemon is not reachable ({exc!r}). "
+            f"The deepswe benchmark needs a running Docker daemon to build "
+            f"task sandboxes and verifier containers. Start Docker and "
+            f"retry."
+        ) from exc
+
+
+def _check_plugin_optional_deps(plugin_type: PluginType, name: str) -> None:
+    """Run a plugin class's optional ``check_available`` hook if it defines one.
+
+    The plugin contracts don't require the hook, so a custom plugin need not
+    define it. Built-in graders inherit a no-op default from ``BaseGrader``;
+    the deepeval-gated benchmark loaders define it. Treat absence as "no
+    optional deps to verify".
+    """
+    from aiperf.plugin import plugins
+
+    cls = plugins.get_class(plugin_type, name)
+    check = getattr(cls, "check_available", None)
+    if callable(check):
+        check()
+
+
 def _preflight_accuracy_deps(plan: BenchmarkPlan) -> None:
     """Fail fast if a selected accuracy benchmark's or grader's optional
     dependency (lighteval / deepeval, the ``[accuracy]`` extra) is missing.
@@ -103,6 +168,11 @@ def _preflight_accuracy_deps(plan: BenchmarkPlan) -> None:
     cleanly. Checking here — in the main process, before any service spawns —
     turns both into a single clean ``ConfigurationError`` panel with a non-zero
     exit and no hang.
+
+    Agentic benchmarks (``agentic: true`` metadata, e.g. deepswe) have no
+    grader — grading is the task's program-based verifier executed by Pier —
+    so their preflight checks the pier/docker prerequisites instead, and an
+    explicit ``--accuracy-grader`` is rejected.
     """
     from aiperf.config.loader.errors import ConfigurationError
     from aiperf.plugin import plugins
@@ -126,28 +196,35 @@ def _preflight_accuracy_deps(plan: BenchmarkPlan) -> None:
             meta = plugins.get_metadata(
                 PluginType.ACCURACY_BENCHMARK, acc_cfg.benchmark
             )
+
+            if meta.get("agentic"):
+                if acc_cfg.grader is not None:
+                    raise ValueError(
+                        f"--accuracy-grader '{acc_cfg.grader}' is not supported "
+                        f"by the agentic benchmark '{acc_cfg.benchmark}': "
+                        f"grading is the task's program-based verifier, "
+                        f"executed by Pier alongside the agent."
+                    )
+                key = (str(acc_cfg.benchmark), "<agentic>")
+                if key not in checked:
+                    checked.add(key)
+                    _preflight_agentic_accuracy_deps()
+                    _check_plugin_optional_deps(
+                        PluginType.ACCURACY_BENCHMARK, acc_cfg.benchmark
+                    )
+                continue
+
             grader_name = acc_cfg.grader or meta.get(
                 "default_grader", "multiple_choice"
             )
 
             key = (str(acc_cfg.benchmark), grader_name)
-            if key in checked:
-                continue
-            checked.add(key)
-
-            # ``check_available`` is an optional hook on both the benchmark
-            # loader and grader: the plugin contracts don't require it, so a
-            # custom plugin need not define it. Built-in graders inherit a
-            # no-op default from ``BaseGrader``; the deepeval-gated benchmark
-            # loaders define it. Treat absence as "no optional deps to verify".
-            benchmark_cls = plugins.get_class(
-                PluginType.ACCURACY_BENCHMARK, acc_cfg.benchmark
-            )
-            grader_cls = plugins.get_class(PluginType.ACCURACY_GRADER, grader_name)
-            for cls in (benchmark_cls, grader_cls):
-                check = getattr(cls, "check_available", None)
-                if callable(check):
-                    check()
+            if key not in checked:
+                checked.add(key)
+                _check_plugin_optional_deps(
+                    PluginType.ACCURACY_BENCHMARK, acc_cfg.benchmark
+                )
+                _check_plugin_optional_deps(PluginType.ACCURACY_GRADER, grader_name)
         except (
             TypeNotFoundError,
             KeyError,

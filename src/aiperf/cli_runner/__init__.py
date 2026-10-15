@@ -14,6 +14,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 from uuid import uuid4
 
+from aiperf.cli_runner._agentic_run import _run_agentic_accuracy_benchmark
 from aiperf.cli_runner._callbacks import CompletedRun, OnComplete
 from aiperf.cli_runner._multi_run import (
     _reject_in_process_sweep_under_operator,
@@ -41,11 +42,31 @@ __all__ = [
 ]
 
 
+def _is_agentic_accuracy_run(plan: BenchmarkPlan) -> bool:
+    """True when the plan's accuracy benchmark is agentic (executed via the
+    in-process runner instead of the service topology).
+
+    Agentic benchmarks (``agentic: true`` in plugins.yaml metadata, e.g.
+    deepswe) run their agent loop through an external harness, so they
+    produce no worker requests and take the dedicated execution path.
+    """
+    from aiperf.plugin import plugins
+    from aiperf.plugin.enums import PluginType
+
+    acc_cfg = getattr(plan.configs[0], "accuracy", None)
+    if acc_cfg is None or not acc_cfg.enabled:
+        return False
+    meta = plugins.get_metadata(PluginType.ACCURACY_BENCHMARK, acc_cfg.benchmark)
+    return bool(meta.get("agentic"))
+
+
 def run_benchmark(plan: BenchmarkPlan) -> None:
     """Run benchmarks from a BenchmarkPlan.
 
     For single-config single-trial plans, runs directly (Dashboard works).
     For multi-config or multi-trial plans, uses the MultiRunOrchestrator.
+    Agentic accuracy benchmarks (e.g. deepswe) take the in-process
+    agentic-accuracy path instead of spawning the service topology.
 
     Args:
         plan: BenchmarkPlan to execute.
@@ -81,6 +102,25 @@ def run_benchmark(plan: BenchmarkPlan) -> None:
                 plot_envelope=plan.plot,
             )
         )
+
+    if _is_agentic_accuracy_run(plan):
+        if not plan.is_single_run:
+            raise ValueError(
+                "Agentic accuracy benchmarks (e.g. deepswe) support single runs "
+                "only: multi-config and multi-trial plans would multiply "
+                "multi-hour agentic trials. Run one config per invocation "
+                "instead of a sweep."
+            )
+        from aiperf.orchestrator.orchestrator import resolve_run_seed
+
+        seed = resolve_run_seed(plan, plan.variations[0])
+        run = _make_benchmark_run(
+            plan.configs[0], random_seed=seed, variables=plan.variables
+        )
+        # Auto-plot callbacks target perf metrics an agentic accuracy run
+        # never produces, so they are intentionally not invoked here.
+        _run_agentic_accuracy_benchmark(run)
+        return
 
     if plan.is_single_run:
         from aiperf.orchestrator.orchestrator import resolve_run_seed

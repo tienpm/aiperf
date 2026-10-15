@@ -9,7 +9,7 @@ This document catalogs every stubbed method in the accuracy benchmarking scaffol
 
 > **Pipeline note:** Accuracy is now a first-class **dedicated `accuracy` record-type channel** (like `gpu_telemetry` and `server_metrics`), not a shoehorn on the shared `metric_records` channel. Graded responses flow as typed `AccuracyRecordsData` and are rolled up by `AccuracyAccumulator` into a structured `AccuracySummary`; a per-record `AccuracyJSONLWriter` streams the full grading detail. The old `AccuracyResultsProcessor` (which returned `list[MetricResult]` on the `metric_records` channel via `accuracy.` tags) has been removed. See [Record-Type Channels](../architecture.md#record-type-channels) for the current data flow. The registrations below have been updated accordingly.
 
-**Status summary:** All accuracy scaffolding is now implemented end-to-end. The eight graders (`MultipleChoiceGrader`, `MathGrader`, `CodeExecutionGrader`, `LightevalExprGrader`, `LightevalLatexGrader`, `LightevalGPQAGrader`, `LightevalGSM8KGrader`, `ExactMatchGrader`) and ten benchmark loaders (`MMLUBenchmark`, `AIMEBenchmark`, `HellaSwagBenchmark`, `BigBenchBenchmark`, `AIME24Benchmark`, `AIME25Benchmark`, `Math500Benchmark`, `GPQADiamondBenchmark`, `LCBCodeGenerationBenchmark`, `GSM8KBenchmark`) are all wired into the plugin system, CLI, config pipeline, and processor/exporter chain. There are no remaining stubs.
+**Status summary:** All accuracy scaffolding is now implemented end-to-end. The eight graders (`MultipleChoiceGrader`, `MathGrader`, `CodeExecutionGrader`, `LightevalExprGrader`, `LightevalLatexGrader`, `LightevalGPQAGrader`, `LightevalGSM8KGrader`, `ExactMatchGrader`) and eleven benchmark loaders (`MMLUBenchmark`, `AIMEBenchmark`, `HellaSwagBenchmark`, `BigBenchBenchmark`, `AIME24Benchmark`, `AIME25Benchmark`, `Math500Benchmark`, `GPQADiamondBenchmark`, `LCBCodeGenerationBenchmark`, `GSM8KBenchmark`, `DeepSWEBenchmark`) are all wired into the plugin system, CLI, config pipeline, and processor/exporter chain. `DeepSWEBenchmark` is agentic (`agentic: true` plugins.yaml metadata): instead of the grader chain it dispatches to `DeepSWEAgenticRunner` (`deepswe_runner.py`), which delegates each task to `pier run --agent mini-swe-agent` and ingests the verifier reward as `AccuracyRecordsData`. There are no remaining stubs.
 
 ## Table of Contents
 
@@ -30,13 +30,15 @@ This document catalogs every stubbed method in the accuracy benchmarking scaffol
 
 ```mermaid
 graph TD
-    A[AccuracyConfig<br/>7 CLI flags --accuracy-*<br/>enabled property] --> B[AccuracyBenchmark<br/>9 benchmarks<br/>load_problems]
-    A --> C[AccuracyGrader<br/>4 graders<br/>grade + extract]
+    A[AccuracyConfig<br/>7 CLI flags --accuracy-*<br/>enabled property] --> B[AccuracyBenchmark<br/>11 benchmarks<br/>load_problems]
+    A --> C[AccuracyGrader<br/>8 graders<br/>grade + extract]
     B --> D[AccuracyRecordProcessor<br/>process_record]
     C --> D
     D --> E[AccuracyAccumulator<br/>export_results<br/>AccuracySummary]
     D --> J[AccuracyJSONLWriter<br/>accuracy_export.jsonl]
     E --> F[AccuracyConsoleExporter<br/>AccuracyDataExporter]
+    B -.agentic: true.-> G[DeepSWEAgenticRunner<br/>pier run + verifier reward<br/>in-process, no services]
+    G --> E
 ```
 
 `AccuracyRecordProcessor.process_record` returns a typed `AccuracyRecordsData`
@@ -57,11 +59,11 @@ Return type for all grader `grade()` methods.
 
 ```python
 class GradingResult(AIPerfBaseModel):
-    correct: bool           # Whether the response was graded as correct
-    confidence: float       # Confidence score (0.0 to 1.0)
-    reasoning: str          # Explanation of the grading decision
-    extracted_answer: str   # Answer extracted from the model response
-    ground_truth: str       # Expected correct answer
+    correct: bool  # Whether the response was graded as correct
+    confidence: float  # Confidence score (0.0 to 1.0)
+    reasoning: str  # Explanation of the grading decision
+    extracted_answer: str  # Answer extracted from the model response
+    ground_truth: str  # Expected correct answer
     unparsed: bool = False  # True when fallback parsing was needed
 ```
 
@@ -71,11 +73,13 @@ Return type for all benchmark `load_problems()` methods.
 
 ```python
 class BenchmarkProblem(AIPerfBaseModel):
-    prompt: str                       # The prompt to send to the LLM
-    ground_truth: str                 # The expected correct answer
-    task: str                         # Task/subtask name within the benchmark
-    metadata: dict = {}               # Additional problem metadata
-    raw_messages: list[dict] | None = None # Preformatted messages, when supplied by a loader
+    prompt: str  # The prompt to send to the LLM
+    ground_truth: str  # The expected correct answer
+    task: str  # Task/subtask name within the benchmark
+    metadata: dict = {}  # Additional problem metadata
+    raw_messages: list[dict] | None = (
+        None  # Preformatted messages, when supplied by a loader
+    )
 ```
 
 ### AccuracyRecordsData
@@ -87,21 +91,23 @@ and `TelemetryRecord`.
 ```python
 class AccuracyRecordsData(AIPerfBaseModel):
     record_type: ClassVar[str] = "accuracy"
-    session_num: int          # session/conversation index
-    conversation_id: str | None = None  # problem id; key into inputs.json for the prompt
-    x_request_id: str | None = None      # unique per-request id
-    worker_id: str            # record processor that produced this record
+    session_num: int  # session/conversation index
+    conversation_id: str | None = (
+        None  # problem id; key into inputs.json for the prompt
+    )
+    x_request_id: str | None = None  # unique per-request id
+    worker_id: str  # record processor that produced this record
     benchmark_phase: CreditPhase  # warmup vs profiling
-    timestamp_ns: int         # wall-clock ns when grading completed
-    task: str | None          # accuracy task/subtask (None when unlabeled)
-    grader_name: str          # which grader scored this response
-    passed: bool              # graded correct (from GradingResult.correct)
-    unparsed: bool = False    # needed a regex fallback (from GradingResult.unparsed)
-    confidence: float         # grading confidence 0.0-1.0
-    expected: str             # ground truth (from GradingResult.ground_truth)
-    actual: str               # extracted answer (from GradingResult.extracted_answer)
-    explanation: str     # grader's explanation of the score (NOT the model's)
-    model_output: str = ""    # full answer content the model returned
+    timestamp_ns: int  # wall-clock ns when grading completed
+    task: str | None  # accuracy task/subtask (None when unlabeled)
+    grader_name: str  # which grader scored this response
+    passed: bool  # graded correct (from GradingResult.correct)
+    unparsed: bool = False  # needed a regex fallback (from GradingResult.unparsed)
+    confidence: float  # grading confidence 0.0-1.0
+    expected: str  # ground truth (from GradingResult.ground_truth)
+    actual: str  # extracted answer (from GradingResult.extracted_answer)
+    explanation: str  # grader's explanation of the score (NOT the model's)
+    model_output: str = ""  # full answer content the model returned
     model_thinking: str | None = None  # model reasoning_content channel, if any
 ```
 
@@ -126,7 +132,9 @@ class AccuracySummary(AIPerfBaseModel):
     accuracy_rate: float
     overall_unparsed: int
     grader_name: str | None
-    per_task: dict[str, TaskAccuracyStats]  # total/passed/unparsed/accuracy_rate/unparsed_rate
+    per_task: dict[
+        str, TaskAccuracyStats
+    ]  # total/passed/unparsed/accuracy_rate/unparsed_rate
 ```
 
 ---
@@ -141,7 +149,9 @@ class AccuracySummary(AIPerfBaseModel):
 @runtime_checkable
 class AccuracyGraderProtocol(Protocol):
     def __init__(self, run: BenchmarkRun, **kwargs) -> None: ...
-    async def grade(self, response_text: str, ground_truth: str, **kwargs) -> GradingResult: ...
+    async def grade(
+        self, response_text: str, ground_truth: str, **kwargs
+    ) -> GradingResult: ...
     def extract_answer(self, response_text: str, **kwargs) -> str: ...
 ```
 
@@ -151,7 +161,9 @@ class AccuracyGraderProtocol(Protocol):
 @runtime_checkable
 class AccuracyBenchmarkProtocol(Protocol):
     def __init__(self, run: BenchmarkRun, **kwargs) -> None: ...
-    async def load_problems(self, tasks: list[str] | None, n_shots: int, enable_cot: bool) -> list[BenchmarkProblem]: ...
+    async def load_problems(
+        self, tasks: list[str] | None, n_shots: int, enable_cot: bool
+    ) -> list[BenchmarkProblem]: ...
 ```
 
 ---
@@ -236,6 +248,7 @@ All benchmarks use `AIPerfLoggerMixin` and must implement 1 method.
 | 7 | `Math500Benchmark` | `benchmarks/math_500.py` | `math_500` | `lighteval_latex` | 0 | **IMPLEMENTED.** Loads `HuggingFaceH4/MATH-500` (test split). Same lighteval-aligned shape as AIME24/25, but `ground_truth` is the full `solution` text (containing `\boxed{answer}`); `LightevalLatexGrader` extracts the boxed expression at grade time. Per-row `task` = `subject` so the accuracy CSV breaks down by MATH subject. |
 | 8 | `GPQADiamondBenchmark` | `benchmarks/gpqa_diamond.py` | `gpqa_diamond` | `lighteval_gpqa` | 0 | **IMPLEMENTED.** Loads `Idavidrein/gpqa` (subset `gpqa_diamond`, train split). Renders the simple-evals prompt template with **SHA-256-seeded deterministic A/B/C/D shuffling** of the correct + 3 distractor answers — one intentional deviation from the recipe's stochastic `random.randint(0, 3)` so gold positions reproduce across runs. Per-row `task` = `High-level domain` so the accuracy CSV breaks down by physics/chemistry/biology. |
 | 9 | `LCBCodeGenerationBenchmark` | `benchmarks/lcb_codegeneration.py` | `lcb_codegeneration` | `code_execution` | 0 | **IMPLEMENTED.** Loads `livecodebench/code_generation_lite` (test split). Serializes the LCB-style test-case payload (starter_code, public + private test cases, upstream metadata) into `BenchmarkProblem.ground_truth` as an orjson blob so `CodeExecutionGrader` can wrap lighteval's `codegen_metrics` and run the generated code against the bundled test cases. |
+| 10 | `DeepSWEBenchmark` | `benchmarks/deepswe.py` | `deepswe` | *(agentic — verifier via Pier)* | 0 | **IMPLEMENTED.** Provisions the 113 Harbor-format DeepSWE v1.1 task dirs (pinned GitHub tarball into the dataset cache, or `AIPERF_ACCURACY_DEEPSWE_TASKS_DIR` override) and emits one problem per task whose `ground_truth` is the runner JSON payload (task dir, image, base commit, timeouts). `agentic: true` plugins.yaml metadata makes `run_benchmark` dispatch to `DeepSWEAgenticRunner` (`deepswe_runner.py`) instead of the service topology: one `pier run --agent mini-swe-agent` trial per task against the configured endpoint, verifier `reward.json` ingested as `AccuracyRecordsData`, standard accuracy artifacts assembled in-process. Requires Docker + the Pier CLI (checked at preflight). |
 
 ### Still Stubbed
 
@@ -243,7 +256,9 @@ _All benchmarks are now implemented._
 
 Default grader and n-shots are stored in `plugins.yaml` metadata and can be read at runtime via:
 ```python
-plugins.get_metadata(PluginType.ACCURACY_BENCHMARK, "mmlu")  # -> {"default_grader": "multiple_choice", "default_n_shots": 5}
+plugins.get_metadata(
+    PluginType.ACCURACY_BENCHMARK, "mmlu"
+)  # -> {"default_grader": "multiple_choice", "default_n_shots": 5}
 ```
 
 ---

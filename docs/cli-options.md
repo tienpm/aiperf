@@ -1858,7 +1858,7 @@ Number of log-spaced steps for the decode-itl-curve recipe's OSL grid (default 4
 #### `--accuracy-benchmark` `<str>`
 
 Accuracy benchmark to run (e.g., mmlu, aime, hellaswag). When set, enables accuracy benchmarking mode alongside performance profiling.
-<br/>_Choices: [`mmlu`, `mmlu_pro`, `aime`, `hellaswag`, `bigbench`, `aime24`, `aime25`, `math_500`, `gsm8k`, `gpqa_diamond`, `lcb_codegeneration`]_
+<br/>_Choices: [`mmlu`, `mmlu_pro`, `aime`, `hellaswag`, `bigbench`, `aime24`, `aime25`, `math_500`, `gsm8k`, `gpqa_diamond`, `lcb_codegeneration`, `deepswe`]_
 
 #### `--accuracy-tasks` `<list>`
 
@@ -3493,7 +3493,7 @@ Number of log-spaced steps for the decode-itl-curve recipe's OSL grid (default 4
 #### `--accuracy-benchmark` `<str>`
 
 Accuracy benchmark to run (e.g., mmlu, aime, hellaswag). When set, enables accuracy benchmarking mode alongside performance profiling.
-<br/>_Choices: [`mmlu`, `mmlu_pro`, `aime`, `hellaswag`, `bigbench`, `aime24`, `aime25`, `math_500`, `gsm8k`, `gpqa_diamond`, `lcb_codegeneration`]_
+<br/>_Choices: [`mmlu`, `mmlu_pro`, `aime`, `hellaswag`, `bigbench`, `aime24`, `aime25`, `math_500`, `gsm8k`, `gpqa_diamond`, `lcb_codegeneration`, `deepswe`]_
 
 #### `--accuracy-tasks` `<list>`
 
@@ -5123,7 +5123,7 @@ Number of log-spaced steps for the decode-itl-curve recipe's OSL grid (default 4
 #### `--accuracy-benchmark` `<str>`
 
 Accuracy benchmark to run (e.g., mmlu, aime, hellaswag). When set, enables accuracy benchmarking mode alongside performance profiling.
-<br/>_Choices: [`mmlu`, `mmlu_pro`, `aime`, `hellaswag`, `bigbench`, `aime24`, `aime25`, `math_500`, `gsm8k`, `gpqa_diamond`, `lcb_codegeneration`]_
+<br/>_Choices: [`mmlu`, `mmlu_pro`, `aime`, `hellaswag`, `bigbench`, `aime24`, `aime25`, `math_500`, `gsm8k`, `gpqa_diamond`, `lcb_codegeneration`, `deepswe`]_
 
 #### `--accuracy-tasks` `<list>`
 
@@ -7260,7 +7260,7 @@ Number of log-spaced steps for the decode-itl-curve recipe's OSL grid (default 4
 #### `--accuracy-benchmark` `<str>`
 
 Accuracy benchmark to run (e.g., mmlu, aime, hellaswag). When set, enables accuracy benchmarking mode alongside performance profiling.
-<br/>_Choices: [`mmlu`, `mmlu_pro`, `aime`, `hellaswag`, `bigbench`, `aime24`, `aime25`, `math_500`, `gsm8k`, `gpqa_diamond`, `lcb_codegeneration`]_
+<br/>_Choices: [`mmlu`, `mmlu_pro`, `aime`, `hellaswag`, `bigbench`, `aime24`, `aime25`, `math_500`, `gsm8k`, `gpqa_diamond`, `lcb_codegeneration`, `deepswe`]_
 
 #### `--accuracy-tasks` `<list>`
 

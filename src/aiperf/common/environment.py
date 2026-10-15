@@ -114,6 +114,63 @@ class _AccuracySettings(BaseSettings):
         "``aiperf.accuracy.benchmarks.lcb_codegeneration``.",
     )
 
+    DEEPSWE_PINNED_REF: str = Field(
+        default="0b9fabbb63b9104d678fe965e1632f2dd9eaa2ea",
+        description="Git ref (commit hash or branch) of "
+        "``github.com/datacurve-ai/deep-swe`` that the deepswe accuracy "
+        "benchmark downloads and pins when no local tasks dir is "
+        "provided. The default is the v1.1 task-set commit (images "
+        "tagged ``-v1.1``); bump it when rebaselining against a newer "
+        "upstream task set so task ids and verifier configs stay "
+        "reproducible. Consumed by "
+        "``aiperf.accuracy.benchmarks.deepswe``.",
+    )
+
+    DEEPSWE_TASKS_DIR: str | None = Field(
+        default=None,
+        description="Path to a pre-provisioned deep-swe tasks directory "
+        "(the directory holding the 113 Harbor-format task folders, or "
+        "an extracted repo root containing ``tasks/``). When set, "
+        "the deepswe accuracy benchmark uses it verbatim and never "
+        "downloads the GitHub tarball — the supported path for hosts "
+        "without GitHub access. Consumed by "
+        "``aiperf.accuracy.benchmarks.deepswe``.",
+    )
+
+    DEEPSWE_PIER_BIN: str = Field(
+        default="pier",
+        description="Name or path of the Pier CLI executable used by the "
+        "deepswe agentic accuracy runner to execute trials "
+        "(``pier run --agent mini-swe-agent``). Install with "
+        "``uv tool install datacurve-pier``. Consumed by "
+        "``aiperf.accuracy.deepswe_runner``.",
+    )
+
+    DEEPSWE_CONCURRENCY: int = Field(
+        default=1,
+        ge=1,
+        description="Maximum number of concurrent deepswe agentic trials. "
+        "Each trial runs a Docker sandbox (task images request 2 CPUs "
+        "and 8 GiB) plus a separate verifier container, and an agent "
+        "run can take up to the task's agent timeout (commonly 3 "
+        "hours), so the default of 1 keeps a single host from being "
+        "oversubscribed. Raise only on machines with spare CPU/RAM. "
+        "Consumed by ``aiperf.accuracy.deepswe_runner``.",
+    )
+
+    DEEPSWE_TASK_TIMEOUT_S: float | None = Field(
+        default=None,
+        gt=0.0,
+        description="Optional hard wall-clock ceiling (seconds) on a single "
+        "deepswe agentic trial, including environment build, agent "
+        "execution, and verification. When unset, the per-task timeouts "
+        "declared in the task's ``task.toml`` (agent, verifier, build) "
+        "govern; set this to bound a trial that wedges outside Pier's "
+        "own timeout surfaces (e.g. a hung image pull). The trial is "
+        "killed (process group) and graded as failed. Consumed by "
+        "``aiperf.accuracy.deepswe_runner``.",
+    )
+
 
 class _AgentXSettings(BaseSettings):
     """Settings for the InferenceX AgentX scenario family.
