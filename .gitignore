@@ -54,6 +54,9 @@ src/aiperf/_build_info.py
 !.cursor/rules/
 .worktrees/
 
+# Zcode - ignore user settings
+.zcode/*
+
 # Chaos/adversarial test run artifacts
 tests/scripts/.chaos_runs/
 
